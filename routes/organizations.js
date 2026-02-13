@@ -402,6 +402,86 @@ router.post('/', async (req, res) => {
   }
 });
 
+// @route   GET /api/organizations/public
+// @desc    Get all active organizations (PUBLIC - no auth required)
+// @access  Public
+router.get('/public', async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = 50,
+      search,
+      type
+    } = req.query;
+
+    const query = { isActive: true }; // Only show active organizations
+    
+    if (search) {
+      query.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } }
+      ];
+    }
+    
+    if (type && type !== 'all') {
+      query.type = type;
+    }
+
+    const organizations = await Organization.find(query)
+      .select('name organizationId type sectorLevel description contact isActive createdAt')
+      .sort({ createdAt: -1 })
+      .limit(limit * 1)
+      .skip((page - 1) * limit);
+
+    const total = await Organization.countDocuments(query);
+
+    console.log(`📊 Public organizations query - Found ${organizations.length} active organizations`);
+
+    // Transform to match frontend expected format
+    const transformedOrgs = organizations.map(org => ({
+      id: org._id.toString(),
+      name: org.name,
+      organizationId: org.organizationId,
+      type: org.type,
+      sectorLevel: org.sectorLevel,
+      logo: `https://placehold.co/100x100/3b82f6/white?text=${org.name.charAt(0)}`,
+      location: `${org.contact?.address?.city || 'Ethiopia'}`,
+      description: org.description || `${org.type} organization`,
+      activeItems: 0, // TODO: Calculate from items
+      totalItems: 0,
+      rating: 4.5,
+      verified: org.isActive,
+      contact: {
+        phone: org.contact?.phone || '',
+        email: org.contact?.email || '',
+        website: org.website || ''
+      },
+      stats: {
+        lostItems: 0,
+        foundItems: 0,
+        returnedItems: 0
+      }
+    }));
+
+    res.json({
+      success: true,
+      data: transformedOrgs,
+      pagination: {
+        current: parseInt(page),
+        pages: Math.ceil(total / limit),
+        total
+      }
+    });
+
+  } catch (error) {
+    console.error('Get public organizations error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch organizations'
+    });
+  }
+});
+
 // @route   GET /api/organizations
 // @desc    Get organizations (Hall Admin sees all, Org Admin sees own)
 // @access  Private/Admin
@@ -746,8 +826,6 @@ router.post('/:id/activate', protect, authorize('super_admin'), async (req, res)
   }
 });
 
-module.exports = router;
-
 // @route   POST /api/organizations/verify-email
 // @desc    Verify organization admin email
 // @access  Public
@@ -907,3 +985,6 @@ router.post('/resend-verification', async (req, res) => {
     });
   }
 });
+
+
+module.exports = router;
