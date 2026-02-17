@@ -12,20 +12,13 @@ const itemRoutes = require('./routes/items');
 const userRoutes = require('./routes/users');
 const uploadRoutes = require('./routes/upload');
 const adminRoutes = require('./routes/admin');
-const hallAdminRoutes = require('./routes/hallAdmin');
-const orgAdminRoutes = require('./routes/orgAdmin');
 const organizationRoutes = require('./routes/organizations');
 const orderRoutes = require('./routes/orders');
-const simpleOrdersRoutes = require('./simple-orders-api');
-
-// Import mock database
-const mockDB = require('./mock-database');
 
 const app = express();
 
 // Global variable to track database status
 global.isDatabaseConnected = false;
-global.mockDatabase = mockDB;
 
 // Middleware
 app.use(cors({
@@ -44,11 +37,8 @@ app.use('/api/items', itemRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/admin', adminRoutes);
-app.use('/api/hall-admin', hallAdminRoutes);
-app.use('/api/org-admin', orgAdminRoutes);
 app.use('/api/organizations', organizationRoutes);
 app.use('/api/orders', orderRoutes);
-app.use('/api/simple-orders', simpleOrdersRoutes);
 
 // API Info route
 app.get('/api', (req, res) => {
