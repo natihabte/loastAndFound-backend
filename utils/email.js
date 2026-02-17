@@ -1,25 +1,72 @@
 const nodemailer = require('nodemailer');
 
-// Create transporter
-const createTransporter = () => {
-  return nodemailer.createTransport({
-    host: process.env.EMAIL_HOST,
-    port: process.env.EMAIL_PORT,
-    secure: false,
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASSWORD
+// Store the current transporter and account info
+let currentTransporter = null;
+let currentTestAccount = null;
+
+// Create transporter using Ethereal Email
+const createTransporter = async () => {
+  try {
+    // Create Ethereal test account if not in production
+    if (process.env.NODE_ENV !== 'production') {
+      // Reuse existing account if available
+      if (!currentTestAccount) {
+        currentTestAccount = await nodemailer.createTestAccount();
+        
+        console.log('📧 Ethereal Email Test Account Created:');
+        console.log(`   Email: ${currentTestAccount.user}`);
+        console.log(`   Password: ${currentTestAccount.pass}`);
+        console.log(`   SMTP Server: ${currentTestAccount.smtp.host}:${currentTestAccount.smtp.port}`);
+        console.log(`   Preview URL: https://ethereal.email`);
+      }
+      
+      if (!currentTransporter) {
+        currentTransporter = nodemailer.createTransport({
+          host: currentTestAccount.smtp.host,
+          port: currentTestAccount.smtp.port,
+          secure: currentTestAccount.smtp.secure,
+          auth: {
+            user: currentTestAccount.user,
+            pass: currentTestAccount.pass
+          }
+        });
+      }
+      
+      return currentTransporter;
+    } else {
+      // Production: use configured SMTP settings
+      return nodemailer.createTransport({
+        host: process.env.EMAIL_HOST,
+        port: process.env.EMAIL_PORT,
+        secure: false,
+        auth: {
+          user: process.env.EMAIL_USER,
+          pass: process.env.EMAIL_PASSWORD
+        }
+      });
     }
-  });
+  } catch (error) {
+    console.error('❌ Failed to create email transporter:', error);
+    throw error;
+  }
+};
+
+// Get the appropriate sender email
+const getSenderEmail = () => {
+  if (process.env.NODE_ENV !== 'production' && currentTestAccount) {
+    return currentTestAccount.user;
+  }
+  return process.env.EMAIL_USER || 'noreply@lostandfound.com';
 };
 
 // Send verification email
 exports.sendVerificationEmail = async (email, code) => {
   try {
-    const transporter = createTransporter();
+    const transporter = await createTransporter();
+    const senderEmail = getSenderEmail();
 
     const mailOptions = {
-      from: `Public Sector Lost & Found <${process.env.EMAIL_USER}>`,
+      from: `Public Sector Lost & Found <${senderEmail}>`,
       to: email,
       subject: 'Email Verification - Public Sector Lost & Found Platform',
       html: `
@@ -37,8 +84,16 @@ exports.sendVerificationEmail = async (email, code) => {
       `
     };
 
-    await transporter.sendMail(mailOptions);
-    console.log(`✅ Verification email sent to ${email}`);
+    const info = await transporter.sendMail(mailOptions);
+    
+    // Log preview URL for Ethereal Email
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('📧 Email sent successfully!');
+      console.log('📧 Preview URL:', nodemailer.getTestMessageUrl(info));
+      console.log(`✅ Verification email sent to ${email}`);
+    } else {
+      console.log(`✅ Verification email sent to ${email}`);
+    }
   } catch (error) {
     console.error('❌ Email send error:', error);
     // In development, log the code
@@ -52,19 +107,18 @@ exports.sendVerificationEmail = async (email, code) => {
 exports.sendOrganizationVerificationEmail = async (email, token, organizationName) => {
   try {
     // Check if email is configured
-    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASSWORD || process.env.EMAIL_PASSWORD === 'your_gmail_app_password_here') {
-      console.log('⚠️  Email not configured. Verification token for development:');
+    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASSWORD || process.env.EMAIL_PASSWORD === 'ethereal_password') {
+      console.log('⚠️  Using Ethereal Email for development. Verification token:');
       console.log(`📧 Email: ${email}`);
       console.log(`🔑 Token: ${token}`);
-      console.log(`🔗 Verification URL: ${process.env.FRONTEND_URL}/organization-verification?token=${token}`);
-      return;
+      console.log(`🔗 Verification URL: ${process.env.FRONTEND_URL || 'http://localhost:3001'}/organization-verification?token=${token}`);
     }
 
-    const transporter = createTransporter();
-    const verificationUrl = `${process.env.FRONTEND_URL}/organization-verification?token=${token}`;
+    const transporter = await createTransporter();
+    const verificationUrl = `${process.env.FRONTEND_URL || 'http://localhost:3001'}/organization-verification?token=${token}`;
 
     const mailOptions = {
-      from: `Public Sector Lost & Found <${process.env.EMAIL_USER}>`,
+      from: `Public Sector Lost & Found <${process.env.EMAIL_USER || 'noreply@lostandfound.com'}>`,
       to: email,
       subject: `Verify Your Organization - ${organizationName}`,
       html: `
@@ -120,8 +174,16 @@ exports.sendOrganizationVerificationEmail = async (email, token, organizationNam
       `
     };
 
-    await transporter.sendMail(mailOptions);
-    console.log(`✅ Organization verification email sent to ${email}`);
+    const info = await transporter.sendMail(mailOptions);
+    
+    // Log preview URL for Ethereal Email
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('📧 Organization verification email sent successfully!');
+      console.log('📧 Preview URL:', nodemailer.getTestMessageUrl(info));
+      console.log(`✅ Organization verification email sent to ${email}`);
+    } else {
+      console.log(`✅ Organization verification email sent to ${email}`);
+    }
   } catch (error) {
     console.error('❌ Organization verification email error:', error);
     // In development, log the token
@@ -135,10 +197,10 @@ exports.sendOrganizationVerificationEmail = async (email, token, organizationNam
 // Send password reset email
 exports.sendPasswordResetEmail = async (email, code) => {
   try {
-    const transporter = createTransporter();
+    const transporter = await createTransporter();
 
     const mailOptions = {
-      from: `Public Sector Lost & Found <${process.env.EMAIL_USER}>`,
+      from: `Public Sector Lost & Found <${process.env.EMAIL_USER || 'noreply@lostandfound.com'}>`,
       to: email,
       subject: 'Password Reset Request - Public Sector Lost & Found',
       html: `
@@ -184,8 +246,16 @@ exports.sendPasswordResetEmail = async (email, code) => {
       `
     };
 
-    await transporter.sendMail(mailOptions);
-    console.log(`✅ Password reset email sent to ${email}`);
+    const info = await transporter.sendMail(mailOptions);
+    
+    // Log preview URL for Ethereal Email
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('📧 Password reset email sent successfully!');
+      console.log('📧 Preview URL:', nodemailer.getTestMessageUrl(info));
+      console.log(`✅ Password reset email sent to ${email}`);
+    } else {
+      console.log(`✅ Password reset email sent to ${email}`);
+    }
   } catch (error) {
     console.error('❌ Password reset email error:', error);
     // In development, log the code
@@ -198,10 +268,10 @@ exports.sendPasswordResetEmail = async (email, code) => {
 // Send item notification email
 exports.sendItemNotification = async (email, itemTitle, itemStatus) => {
   try {
-    const transporter = createTransporter();
+    const transporter = await createTransporter();
 
     const mailOptions = {
-      from: `Public Sector Lost & Found <${process.env.EMAIL_USER}>`,
+      from: `Public Sector Lost & Found <${process.env.EMAIL_USER || 'noreply@lostandfound.com'}>`,
       to: email,
       subject: `New ${itemStatus} Item Match - Public Sector Lost & Found`,
       html: `
@@ -220,8 +290,16 @@ exports.sendItemNotification = async (email, itemTitle, itemStatus) => {
       `
     };
 
-    await transporter.sendMail(mailOptions);
-    console.log(`✅ Notification email sent to ${email}`);
+    const info = await transporter.sendMail(mailOptions);
+    
+    // Log preview URL for Ethereal Email
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('📧 Item notification email sent successfully!');
+      console.log('📧 Preview URL:', nodemailer.getTestMessageUrl(info));
+      console.log(`✅ Notification email sent to ${email}`);
+    } else {
+      console.log(`✅ Notification email sent to ${email}`);
+    }
   } catch (error) {
     console.error('❌ Notification email error:', error);
   }

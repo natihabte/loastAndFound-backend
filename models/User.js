@@ -28,7 +28,9 @@ const userSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Organization',
     required: function() {
-      return this.role !== 'superAdmin' && this.role !== 'hallAdmin';
+      // Don't require organization for hallAdmin or during initial registration
+      // Users can be assigned to organizations later
+      return false;
     }
   },
   role: {

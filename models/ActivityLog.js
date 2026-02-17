@@ -6,7 +6,16 @@ const activityLogSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Organization',
     required: function() {
-      return this.action !== 'super_admin_action';
+      // Make organization optional for user registration and authentication activities
+      const optionalOrgActions = [
+        'super_admin_action',
+        'user_registered',
+        'user_verified',
+        'user_action',
+        'password_reset_requested',
+        'password_reset_completed'
+      ];
+      return !optionalOrgActions.includes(this.action);
     }
   },
   user: {
@@ -25,7 +34,10 @@ const activityLogSchema = new mongoose.Schema({
       'user_logout',
       'user_invited',
       'user_accepted_invitation',
+      'user_action',
       'password_changed',
+      'password_reset_requested',
+      'password_reset_completed',
       'profile_updated',
       'two_factor_enabled',
       'two_factor_disabled',

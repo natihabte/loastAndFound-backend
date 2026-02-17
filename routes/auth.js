@@ -52,8 +52,9 @@ router.post('/register', [
     // Generate verification code
     const verificationCode = generateVerificationCode();
 
-    // Create user in database
-    user = await User.create({
+    // For regular user registration, we'll create them without an organization initially
+    // They can join an organization later or we can assign a default one
+    const userData = {
       name,
       email,
       password,
@@ -61,23 +62,68 @@ router.post('/register', [
       verificationCode,
       verificationCodeExpires: Date.now() + 10 * 60 * 1000, // 10 minutes
       isVerified: false,
+      role: 'user', // Explicitly set role
       ipAddress: req.ip || req.connection.remoteAddress,
       userAgent: req.get('User-Agent')
-    });
+    };
+
+    // Try to find a default organization or create user without one
+    try {
+      const Organization = require('../models/Organization');
+      let defaultOrg = await Organization.findOne({ 
+        $or: [
+          { isDefault: true },
+          { name: /general|default|public/i }
+        ]
+      });
+
+      // If no default organization exists, create one
+      if (!defaultOrg) {
+        defaultOrg = await Organization.create({
+          name: 'General Public',
+          slug: 'general-public',
+          type: 'public',
+          description: 'Default organization for public users',
+          isDefault: true,
+          settings: {
+            allowPublicRegistration: true,
+            requireApproval: false
+          }
+        });
+        console.log('✅ Created default organization:', defaultOrg.name);
+      }
+
+      userData.organization = defaultOrg._id;
+    } catch (orgError) {
+      console.warn('Could not assign organization, creating user without one:', orgError.message);
+      // Continue without organization - we'll handle this in the User model
+    }
+
+    // Create user in database
+    user = await User.create(userData);
 
     // Log registration activity
-    await ActivityLog.logActivity(
-      user._id,
-      'user_registered',
-      `New user registered: ${name} (${email})`,
-      {
-        email,
-        name,
-        phone,
-        registrationMethod: 'email'
-      },
-      req
-    );
+    try {
+      await ActivityLog.logActivity(
+        user._id,
+        'user_registered',
+        `New user registered: ${name} (${email})`,
+        {
+          email,
+          name,
+          phone,
+          registrationMethod: 'email'
+        },
+        req,
+        {
+          organization: user.organization || null,
+          category: 'registration',
+          severity: 'low'
+        }
+      );
+    } catch (logError) {
+      console.warn('Could not log activity:', logError.message);
+    }
 
     // Try to send email verification code
     try {
@@ -149,7 +195,12 @@ router.post('/verify', async (req, res) => {
         email,
         verificationMethod: isValidCode ? 'development_mode' : 'email_code'
       },
-      req
+      req,
+      {
+        organization: user.organization || null,
+        category: 'registration',
+        severity: 'low'
+      }
     );
 
     // Clean up mock storage
@@ -222,7 +273,12 @@ router.post('/login', [
         loginCount: user.loginCount,
         lastLogin: user.lastLogin
       },
-      req
+      req,
+      {
+        organization: user.organization || null,
+        category: 'security',
+        severity: 'low'
+      }
     );
 
     const token = generateToken(user._id);
@@ -291,7 +347,12 @@ router.post('/resend-code', async (req, res) => {
       'user_action',
       `Verification code resent for: ${email}`,
       { email, action: 'resend_verification_code' },
-      req
+      req,
+      {
+        organization: user.organization || null,
+        category: 'registration',
+        severity: 'low'
+      }
     );
 
     console.log(`📧 New verification code for ${email}: ${verificationCode}`);
@@ -341,7 +402,12 @@ router.post('/change-password', protect, async (req, res) => {
       'password_changed',
       `Password changed for user: ${user.email}`,
       { email: user.email, role: user.role },
-      req
+      req,
+      {
+        organization: user.organization || null,
+        category: 'security',
+        severity: 'medium'
+      }
     );
     
     console.log(`🔑 Password changed successfully for user: ${user.email}`);
@@ -407,7 +473,12 @@ router.post('/forgot-password', async (req, res) => {
       'password_reset_requested',
       `Password reset requested for: ${email}`,
       { email },
-      req
+      req,
+      {
+        organization: user.organization || null,
+        category: 'security',
+        severity: 'medium'
+      }
     );
 
     console.log(`🔑 Password reset code for ${email}: ${resetCode}`);
@@ -489,7 +560,12 @@ router.post('/reset-password', async (req, res) => {
         email,
         resetMethod: isValidCode ? 'development_mode' : 'email_code'
       },
-      req
+      req,
+      {
+        organization: user.organization || null,
+        category: 'security',
+        severity: 'medium'
+      }
     );
 
     console.log(`🔑 Password reset successfully for user: ${email}`);
