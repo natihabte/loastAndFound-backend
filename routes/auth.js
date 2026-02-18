@@ -141,7 +141,6 @@ router.post('/register', [
     };
 
     console.log(`📧 Verification code for ${email}: ${verificationCode}`);
-    console.log(`💡 User can also use any 6-digit code in development mode (like 123456)`);
 
     res.status(201).json({
       success: true,
@@ -161,40 +160,35 @@ router.post('/verify', async (req, res) => {
   try {
     const { email, code } = req.body;
 
-    // Find user in database
     const user = await User.findOne({ email });
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    // Development mode: accept any 6-digit code
-    const isValidCode = process.env.NODE_ENV === 'development' && code.length === 6 && /^\d+$/.test(code);
+    // Check database verification code
+    const isDbCodeValid = user.verificationCode === code && 
+                          user.verificationCodeExpires > Date.now();
+    
+    // Check in-memory code
     const storedCode = mockVerificationCodes[email];
-    const isStoredCodeValid = storedCode && storedCode.code === code && storedCode.expires > Date.now();
+    const isStoredCodeValid = storedCode && 
+                              storedCode.code === code && 
+                              storedCode.expires > Date.now();
 
-    if (!isValidCode && !isStoredCodeValid) {
+    if (!isDbCodeValid && !isStoredCodeValid) {
       return res.status(400).json({ success: false, message: 'Invalid or expired verification code' });
     }
 
-    if (isValidCode) {
-      console.log(`🔧 Development mode: Accepting verification code ${code} for ${email}`);
-    }
-
-    // Update user in database
     user.isVerified = true;
     user.verificationCode = undefined;
     user.verificationCodeExpires = undefined;
     await user.save();
 
-    // Log verification activity
     await ActivityLog.logActivity(
       user._id,
       'user_verified',
       `User verified email: ${email}`,
-      {
-        email,
-        verificationMethod: isValidCode ? 'development_mode' : 'email_code'
-      },
+      { email, verificationMethod: 'email_code' },
       req,
       {
         organization: user.organization || null,
@@ -254,8 +248,8 @@ router.post('/login', [
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
 
-    // Check if verified (skip in development mode)
-    if (!user.isVerified && process.env.NODE_ENV !== 'development') {
+    // Check if verified
+    if (!user.isVerified) {
       return res.status(401).json({ success: false, message: 'Please verify your email first' });
     }
 
@@ -519,8 +513,7 @@ router.post('/reset-password', async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    // Development mode: accept any 6-digit code
-    const isValidCode = process.env.NODE_ENV === 'development' && code.length === 6 && /^\d+$/.test(code);
+    // Check in-memory code
     const storedCode = mockVerificationCodes[email];
     const isStoredCodeValid = storedCode && 
                               storedCode.code === code && 
@@ -531,15 +524,11 @@ router.post('/reset-password', async (req, res) => {
     const isDbCodeValid = user.verificationCode === code && 
                           user.verificationCodeExpires > Date.now();
 
-    if (!isValidCode && !isStoredCodeValid && !isDbCodeValid) {
+    if (!isStoredCodeValid && !isDbCodeValid) {
       return res.status(400).json({ 
         success: false, 
         message: 'Invalid or expired reset code' 
       });
-    }
-
-    if (isValidCode) {
-      console.log(`🔧 Development mode: Accepting reset code ${code} for ${email}`);
     }
 
     // Update password (will be hashed by pre-save middleware)
@@ -556,10 +545,7 @@ router.post('/reset-password', async (req, res) => {
       user._id,
       'password_reset_completed',
       `Password reset completed for: ${email}`,
-      { 
-        email,
-        resetMethod: isValidCode ? 'development_mode' : 'email_code'
-      },
+      { email, resetMethod: 'email_code' },
       req,
       {
         organization: user.organization || null,
@@ -599,8 +585,7 @@ router.post('/verify-reset-code', async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    // Development mode: accept any 6-digit code
-    const isValidCode = process.env.NODE_ENV === 'development' && code.length === 6 && /^\d+$/.test(code);
+    // Check in-memory code
     const storedCode = mockVerificationCodes[email];
     const isStoredCodeValid = storedCode && 
                               storedCode.code === code && 
@@ -611,7 +596,7 @@ router.post('/verify-reset-code', async (req, res) => {
     const isDbCodeValid = user.verificationCode === code && 
                           user.verificationCodeExpires > Date.now();
 
-    if (!isValidCode && !isStoredCodeValid && !isDbCodeValid) {
+    if (!isStoredCodeValid && !isDbCodeValid) {
       return res.status(400).json({ 
         success: false, 
         message: 'Invalid or expired reset code' 

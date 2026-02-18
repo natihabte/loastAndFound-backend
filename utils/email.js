@@ -1,61 +1,42 @@
 const nodemailer = require('nodemailer');
 
-// Store the current transporter and account info
 let currentTransporter = null;
-let currentTestAccount = null;
 
-// Create transporter using Ethereal Email
+// Create transporter using Google OAuth2 or App Password
 const createTransporter = async () => {
   try {
-    // Create Ethereal test account if not in production
-    if (process.env.NODE_ENV !== 'production') {
-      // Reuse existing account if available
-      if (!currentTestAccount) {
-        currentTestAccount = await nodemailer.createTestAccount();
-        
-        console.log('📧 Ethereal Email Test Account Created:');
-        console.log(`   Email: ${currentTestAccount.user}`);
-        console.log(`   Password: ${currentTestAccount.pass}`);
-        console.log(`   SMTP Server: ${currentTestAccount.smtp.host}:${currentTestAccount.smtp.port}`);
-        console.log(`   Preview URL: https://ethereal.email`);
-      }
+    if (!currentTransporter) {
+      const hasOAuth = process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET && process.env.GOOGLE_REFRESH_TOKEN;
       
-      if (!currentTransporter) {
+      if (hasOAuth) {
         currentTransporter = nodemailer.createTransport({
-          host: currentTestAccount.smtp.host,
-          port: currentTestAccount.smtp.port,
-          secure: currentTestAccount.smtp.secure,
+          service: 'gmail',
           auth: {
-            user: currentTestAccount.user,
-            pass: currentTestAccount.pass
+            type: 'OAuth2',
+            user: process.env.EMAIL_USER,
+            clientId: process.env.GOOGLE_CLIENT_ID,
+            clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+            refreshToken: process.env.GOOGLE_REFRESH_TOKEN
+          }
+        });
+      } else {
+        currentTransporter = nodemailer.createTransport({
+          service: 'gmail',
+          auth: {
+            user: process.env.EMAIL_USER,
+            pass: process.env.EMAIL_PASSWORD
           }
         });
       }
-      
-      return currentTransporter;
-    } else {
-      // Production: use configured SMTP settings
-      return nodemailer.createTransport({
-        host: process.env.EMAIL_HOST,
-        port: process.env.EMAIL_PORT,
-        secure: false,
-        auth: {
-          user: process.env.EMAIL_USER,
-          pass: process.env.EMAIL_PASSWORD
-        }
-      });
     }
+    return currentTransporter;
   } catch (error) {
     console.error('❌ Failed to create email transporter:', error);
     throw error;
   }
 };
 
-// Get the appropriate sender email
 const getSenderEmail = () => {
-  if (process.env.NODE_ENV !== 'production' && currentTestAccount) {
-    return currentTestAccount.user;
-  }
   return process.env.EMAIL_USER || 'noreply@lostandfound.com';
 };
 
@@ -85,35 +66,16 @@ exports.sendVerificationEmail = async (email, code) => {
     };
 
     const info = await transporter.sendMail(mailOptions);
-    
-    // Log preview URL for Ethereal Email
-    if (process.env.NODE_ENV !== 'production') {
-      console.log('📧 Email sent successfully!');
-      console.log('📧 Preview URL:', nodemailer.getTestMessageUrl(info));
-      console.log(`✅ Verification email sent to ${email}`);
-    } else {
-      console.log(`✅ Verification email sent to ${email}`);
-    }
+    console.log(`✅ Verification email sent to ${email}`);
   } catch (error) {
     console.error('❌ Email send error:', error);
-    // In development, log the code
-    if (process.env.NODE_ENV === 'development') {
-      console.log(`📧 Verification code for ${email}: ${code}`);
-    }
+    throw error;
   }
 };
 
 // Send organization verification email
 exports.sendOrganizationVerificationEmail = async (email, token, organizationName) => {
   try {
-    // Check if email is configured
-    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASSWORD || process.env.EMAIL_PASSWORD === 'ethereal_password') {
-      console.log('⚠️  Using Ethereal Email for development. Verification token:');
-      console.log(`📧 Email: ${email}`);
-      console.log(`🔑 Token: ${token}`);
-      console.log(`🔗 Verification URL: ${process.env.FRONTEND_URL || 'http://localhost:3001'}/organization-verification?token=${token}`);
-    }
-
     const transporter = await createTransporter();
     const verificationUrl = `${process.env.FRONTEND_URL || 'http://localhost:3001'}/organization-verification?token=${token}`;
 
@@ -174,23 +136,11 @@ exports.sendOrganizationVerificationEmail = async (email, token, organizationNam
       `
     };
 
-    const info = await transporter.sendMail(mailOptions);
-    
-    // Log preview URL for Ethereal Email
-    if (process.env.NODE_ENV !== 'production') {
-      console.log('📧 Organization verification email sent successfully!');
-      console.log('📧 Preview URL:', nodemailer.getTestMessageUrl(info));
-      console.log(`✅ Organization verification email sent to ${email}`);
-    } else {
-      console.log(`✅ Organization verification email sent to ${email}`);
-    }
+    await transporter.sendMail(mailOptions);
+    console.log(`✅ Organization verification email sent to ${email}`);
   } catch (error) {
     console.error('❌ Organization verification email error:', error);
-    // In development, log the token
-    if (process.env.NODE_ENV === 'development') {
-      console.log(`📧 Verification token for ${email}: ${token}`);
-      console.log(`🔗 Verification URL: ${process.env.FRONTEND_URL}/organization-verification?token=${token}`);
-    }
+    throw error;
   }
 };
 
@@ -246,22 +196,11 @@ exports.sendPasswordResetEmail = async (email, code) => {
       `
     };
 
-    const info = await transporter.sendMail(mailOptions);
-    
-    // Log preview URL for Ethereal Email
-    if (process.env.NODE_ENV !== 'production') {
-      console.log('📧 Password reset email sent successfully!');
-      console.log('📧 Preview URL:', nodemailer.getTestMessageUrl(info));
-      console.log(`✅ Password reset email sent to ${email}`);
-    } else {
-      console.log(`✅ Password reset email sent to ${email}`);
-    }
+    await transporter.sendMail(mailOptions);
+    console.log(`✅ Password reset email sent to ${email}`);
   } catch (error) {
     console.error('❌ Password reset email error:', error);
-    // In development, log the code
-    if (process.env.NODE_ENV === 'development') {
-      console.log(`📧 Password reset code for ${email}: ${code}`);
-    }
+    throw error;
   }
 };
 
