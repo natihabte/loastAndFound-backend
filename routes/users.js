@@ -81,16 +81,16 @@ router.get('/me/items', protect, async (req, res) => {
 
 // @route   GET /api/users
 // @desc    Get all users (Admin only)
-// @access  Private/Admin (hallAdmin, orgAdmin, admin)
-router.get('/', protect, authorize('admin', 'hallAdmin', 'orgAdmin'), async (req, res) => {
+// @access  Private/Admin (superAdmin, admin)
+router.get('/', protect, authorize('admin', 'superAdmin'), async (req, res) => {
   try {
-    // If orgAdmin, only return users from their organization
+    // If admin (org admin), only return users from their organization
     let query = {};
-    if (req.user.role === 'orgAdmin' && req.user.organization) {
-      query.organization = req.user.organization;
+    if (req.user.role === 'admin' && req.user.organization) {
+      query.organization = req.user.organization._id;
     }
     
-    const users = await User.find(query).select('-password');
+    const users = await User.find(query).select('-password').populate('organization', 'name organizationId');
     res.json({ success: true, count: users.length, data: users });
   } catch (error) {
     console.error('Get users error:', error);
@@ -100,8 +100,8 @@ router.get('/', protect, authorize('admin', 'hallAdmin', 'orgAdmin'), async (req
 
 // @route   DELETE /api/users/:id
 // @desc    Delete user (Admin only)
-// @access  Private/Admin (hallAdmin, orgAdmin, admin)
-router.delete('/:id', protect, authorize('admin', 'hallAdmin', 'orgAdmin'), async (req, res) => {
+// @access  Private/Admin (superAdmin, admin)
+router.delete('/:id', protect, authorize('admin', 'superAdmin'), async (req, res) => {
   try {
     const user = await User.findById(req.params.id);
     
@@ -109,12 +109,21 @@ router.delete('/:id', protect, authorize('admin', 'hallAdmin', 'orgAdmin'), asyn
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    // If orgAdmin, only allow deleting users from their organization
-    if (req.user.role === 'orgAdmin') {
-      if (!req.user.organization || user.organization.toString() !== req.user.organization.toString()) {
+    // If admin (org admin), only allow deleting users from their organization
+    if (req.user.role === 'admin') {
+      if (!req.user.organization || !user.organization || 
+          user.organization.toString() !== req.user.organization._id.toString()) {
         return res.status(403).json({ 
           success: false, 
           message: 'You can only delete users from your organization' 
+        });
+      }
+      
+      // Org admins cannot delete superAdmins
+      if (user.role === 'superAdmin') {
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied. Cannot delete superAdmin users.'
         });
       }
     }
@@ -133,8 +142,8 @@ router.delete('/:id', protect, authorize('admin', 'hallAdmin', 'orgAdmin'), asyn
 
 // @route   PUT /api/users/:id
 // @desc    Update user (Admin only)
-// @access  Private/Admin (hallAdmin, orgAdmin, admin)
-router.put('/:id', protect, authorize('admin', 'hallAdmin', 'orgAdmin'), async (req, res) => {
+// @access  Private/Admin (superAdmin, admin)
+router.put('/:id', protect, authorize('admin', 'superAdmin'), async (req, res) => {
   try {
     const user = await User.findById(req.params.id);
     
@@ -142,12 +151,21 @@ router.put('/:id', protect, authorize('admin', 'hallAdmin', 'orgAdmin'), async (
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    // If orgAdmin, only allow updating users from their organization
-    if (req.user.role === 'orgAdmin') {
-      if (!req.user.organization || user.organization.toString() !== req.user.organization.toString()) {
+    // If admin (org admin), only allow updating users from their organization
+    if (req.user.role === 'admin') {
+      if (!req.user.organization || !user.organization || 
+          user.organization.toString() !== req.user.organization._id.toString()) {
         return res.status(403).json({ 
           success: false, 
           message: 'You can only update users from your organization' 
+        });
+      }
+      
+      // Org admins cannot change user roles to superAdmin
+      if (req.body.role === 'superAdmin') {
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied. Cannot assign superAdmin role.'
         });
       }
     }
@@ -180,8 +198,8 @@ router.put('/:id', protect, authorize('admin', 'hallAdmin', 'orgAdmin'), async (
 
 // @route   POST /api/users
 // @desc    Create user (Admin only)
-// @access  Private/Admin (hallAdmin, orgAdmin, admin)
-router.post('/', protect, authorize('admin', 'hallAdmin', 'orgAdmin'), async (req, res) => {
+// @access  Private/Admin (superAdmin, admin)
+router.post('/', protect, authorize('admin', 'superAdmin'), async (req, res) => {
   try {
     const { name, email, password, phone, role, organization } = req.body;
 
@@ -199,10 +217,18 @@ router.post('/', protect, authorize('admin', 'hallAdmin', 'orgAdmin'), async (re
       return res.status(400).json({ success: false, message: 'Email already registered' });
     }
 
-    // If orgAdmin, set organization to their organization
+    // If admin (org admin), set organization to their organization
     let userOrganization = organization;
-    if (req.user.role === 'orgAdmin') {
-      userOrganization = req.user.organization;
+    if (req.user.role === 'admin') {
+      userOrganization = req.user.organization._id;
+      
+      // Org admins cannot create superAdmin users
+      if (role === 'superAdmin') {
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied. Cannot create superAdmin users.'
+        });
+      }
     }
 
     // Create user

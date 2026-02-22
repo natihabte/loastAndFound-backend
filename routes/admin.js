@@ -312,9 +312,9 @@ router.get('/activities', protect, authorize('admin', 'hallAdmin', 'orgAdmin'), 
 });
 
 // @route   GET /api/admin/organizations
-// @desc    Get all organizations with admin controls (Super Admin only)
-// @access  Private/Super Admin
-router.get('/organizations', protect, authorize('super_admin'), async (req, res) => {
+// @desc    Get organizations (Super Admin: all, Org Admin: own only)
+// @access  Private/Admin
+router.get('/organizations', protect, authorize('admin', 'superAdmin'), async (req, res) => {
   try {
     const { 
       page = 1, 
@@ -328,6 +328,12 @@ router.get('/organizations', protect, authorize('super_admin'), async (req, res)
 
     // Build query
     let query = {};
+    
+    // Organization admins can only see their own organization
+    if (req.user.role === 'admin' && req.user.organization) {
+      query._id = req.user.organization._id;
+    }
+    
     if (status) query.status = status;
     if (type) query.type = type;
     if (search) {
@@ -871,3 +877,195 @@ router.get('/dashboard/stats', protect, authorize('super_admin'), async (req, re
 });
 
 module.exports = router;
+
+// @route   GET /api/admin/users
+// @desc    Get users (Super Admin: all, Org Admin: own organization only)
+// @access  Private/Admin
+router.get('/users', protect, authorize('admin', 'superAdmin'), async (req, res) => {
+  try {
+    const { 
+      page = 1, 
+      limit = 20, 
+      status, 
+      role, 
+      search,
+      sortBy = 'createdAt',
+      sortOrder = 'desc'
+    } = req.query;
+
+    // Build query
+    let query = {};
+    
+    // Organization admins can only see users in their organization
+    if (req.user.role === 'admin' && req.user.organization) {
+      query.organization = req.user.organization._id;
+    }
+    
+    if (status) query.status = status;
+    if (role) query.role = role;
+    if (search) {
+      query.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    // Execute query with pagination
+    const skip = (page - 1) * limit;
+    const sort = { [sortBy]: sortOrder === 'desc' ? -1 : 1 };
+
+    const [users, total] = await Promise.all([
+      User.find(query)
+        .select('-password')
+        .sort(sort)
+        .skip(skip)
+        .limit(parseInt(limit))
+        .populate('organization', 'name organizationId'),
+      User.countDocuments(query)
+    ]);
+
+    res.json({
+      success: true,
+      data: users,
+      pagination: {
+        current: parseInt(page),
+        pages: Math.ceil(total / limit),
+        total,
+        limit: parseInt(limit)
+      }
+    });
+  } catch (error) {
+    console.error('Get users error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// @route   PUT /api/admin/users/:id
+// @desc    Update user (Org Admin: own org users only, Super Admin: all)
+// @access  Private/Admin
+router.put('/users/:id', protect, authorize('admin', 'superAdmin'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updates = req.body;
+
+    // Find user
+    const user = await User.findById(id).populate('organization');
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Organization admins can only update users in their organization
+    if (req.user.role === 'admin') {
+      if (!req.user.organization || !user.organization || 
+          user.organization._id.toString() !== req.user.organization._id.toString()) {
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied. You can only manage users in your organization.'
+        });
+      }
+      
+      // Org admins cannot change user roles to superAdmin
+      if (updates.role === 'superAdmin') {
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied. Cannot assign superAdmin role.'
+        });
+      }
+    }
+
+    // Update user
+    const updatedUser = await User.findByIdAndUpdate(
+      id,
+      updates,
+      { new: true, runValidators: true }
+    ).select('-password').populate('organization', 'name organizationId');
+
+    // Log activity
+    await ActivityLog.create({
+      organization: user.organization?._id,
+      user: req.user._id,
+      action: 'user_updated',
+      description: `User "${user.name}" updated`,
+      metadata: {
+        userId: id,
+        updates: Object.keys(updates)
+      },
+      severity: 'medium',
+      category: 'user_management'
+    });
+
+    res.json({
+      success: true,
+      data: updatedUser
+    });
+  } catch (error) {
+    console.error('Update user error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// @route   DELETE /api/admin/users/:id
+// @desc    Delete user (Org Admin: own org users only, Super Admin: all)
+// @access  Private/Admin
+router.delete('/users/:id', protect, authorize('admin', 'superAdmin'), async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Find user
+    const user = await User.findById(id).populate('organization');
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Organization admins can only delete users in their organization
+    if (req.user.role === 'admin') {
+      if (!req.user.organization || !user.organization || 
+          user.organization._id.toString() !== req.user.organization._id.toString()) {
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied. You can only manage users in your organization.'
+        });
+      }
+      
+      // Org admins cannot delete superAdmins
+      if (user.role === 'superAdmin') {
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied. Cannot delete superAdmin users.'
+        });
+      }
+    }
+
+    // Delete user
+    await User.findByIdAndDelete(id);
+
+    // Log activity
+    await ActivityLog.create({
+      organization: user.organization?._id,
+      user: req.user._id,
+      action: 'user_deleted',
+      description: `User "${user.name}" deleted`,
+      metadata: {
+        userId: id,
+        userName: user.name,
+        userEmail: user.email
+      },
+      severity: 'high',
+      category: 'user_management'
+    });
+
+    res.json({
+      success: true,
+      message: 'User deleted successfully'
+    });
+  } catch (error) {
+    console.error('Delete user error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
