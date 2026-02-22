@@ -496,8 +496,9 @@ router.get('/', protect, async (req, res) => {
       plan
     } = req.query;
 
-    // Check user permissions
-    if (!['hallAdmin', 'orgAdmin'].includes(req.user.role)) {
+    // Check user permissions - accept both old and new role names
+    const allowedRoles = ['hallAdmin', 'orgAdmin', 'superAdmin', 'admin'];
+    if (!allowedRoles.includes(req.user.role)) {
       return res.status(403).json({
         success: false,
         message: 'Access denied. Admin privileges required.'
@@ -507,7 +508,7 @@ router.get('/', protect, async (req, res) => {
     const query = {};
     
     // Organization admins can only see their own organization
-    if (req.user.role === 'orgAdmin') {
+    if (req.user.role === 'orgAdmin' || req.user.role === 'admin') {
       query._id = req.user.organization;
     }
     

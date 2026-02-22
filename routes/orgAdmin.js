@@ -328,7 +328,7 @@ router.put('/lost-items/:id/approve', protect, orgAdminOrHigher, requireOrganiza
         reason
       },
       severity: 'medium',
-      category: 'item_management'
+      category: 'content'
     });
 
     res.json({
@@ -465,7 +465,7 @@ router.put('/found-items/:id/verify', protect, orgAdminOrHigher, requireOrganiza
         storageLocation
       },
       severity: 'medium',
-      category: 'item_management'
+      category: 'content'
     });
 
     res.json({
@@ -620,7 +620,7 @@ router.put('/claims/:id/review', protect, orgAdminOrHigher, requireOrganizationA
         reason
       },
       severity: 'medium',
-      category: 'claim_management'
+      category: 'content'
     });
 
     res.json({

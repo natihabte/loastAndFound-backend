@@ -35,13 +35,13 @@ const userSchema = new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ['hallAdmin', 'orgAdmin', 'user'],
+    enum: ['superAdmin', 'admin', 'user'],
     default: 'user'
   },
   // Enhanced role hierarchy for two-level admin system
   roleLevel: {
     type: Number,
-    default: 1, // 1=user, 2=orgAdmin, 3=hallAdmin
+    default: 1, // 1=user, 2=admin (orgAdmin), 3=superAdmin (hallAdmin)
     min: 1,
     max: 3
   },
@@ -153,8 +153,8 @@ userSchema.index({ email: 1 }); // For super admin and cross-org lookups
 // Virtual for full name with role
 userSchema.virtual('displayName').get(function() {
   const roleLabels = {
-    hallAdmin: 'Hall Admin',
-    orgAdmin: 'Organization Admin',
+    superAdmin: 'Super Admin',
+    admin: 'Organization Admin',
     user: 'User'
   };
   return `${this.name} (${roleLabels[this.role] || this.role})`;
@@ -190,14 +190,14 @@ userSchema.methods.recordLogin = function(ipAddress, userAgent) {
 
 // Check if user has permission
 userSchema.methods.hasPermission = function(permission) {
-  if (this.role === 'hallAdmin') return true;
+  if (this.role === 'superAdmin') return true;
   return this.permissions.includes(permission);
 };
 
 // Get role permissions
 userSchema.statics.getRolePermissions = function(role) {
   const rolePermissions = {
-    hallAdmin: [
+    superAdmin: [
       'manage_organization',
       'manage_users',
       'manage_items',
@@ -208,7 +208,7 @@ userSchema.statics.getRolePermissions = function(role) {
       'manage_subscriptions',
       'system_admin'
     ],
-    orgAdmin: [
+    admin: [
       'manage_users',
       'manage_items',
       'view_reports',

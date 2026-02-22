@@ -239,7 +239,7 @@ router.post('/organizations', protect, hallAdminOnly, logAdminAction('create_org
         organizationType: type
       },
       severity: 'high',
-      category: 'organization_management'
+      category: 'system'
     });
 
     res.status(201).json({
@@ -313,7 +313,7 @@ router.put('/organizations/:id/status', protect, hallAdminOnly, logAdminAction('
         reason
       },
       severity: 'high',
-      category: 'organization_management'
+      category: 'system'
     });
 
     res.json({
@@ -372,7 +372,7 @@ router.delete('/organizations/:id', protect, hallAdminOnly, logAdminAction('dele
         organizationName: organization.name
       },
       severity: 'critical',
-      category: 'organization_management'
+      category: 'system'
     });
 
     res.json({

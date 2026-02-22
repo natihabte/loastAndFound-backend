@@ -427,6 +427,30 @@ router.post('/forgot-password', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Email is required' });
     }
 
+    // Check if database is connected
+    if (!global.isDatabaseConnected) {
+      console.log('⚠️  Database not connected - using mock mode for password reset');
+      
+      // Generate reset code for mock mode
+      const resetCode = generateVerificationCode();
+      
+      // Store in mock codes
+      mockVerificationCodes[email] = {
+        code: resetCode,
+        expires: Date.now() + 15 * 60 * 1000,
+        type: 'password_reset'
+      };
+
+      console.log(`🔑 Password reset code for ${email}: ${resetCode}`);
+      console.log(`📧 Mock mode: Code stored in memory`);
+
+      return res.json({ 
+        success: true, 
+        message: 'If an account exists with this email, a password reset code has been sent.',
+        devNote: 'Mock mode: Check console for reset code'
+      });
+    }
+
     const user = await User.findOne({ email });
     if (!user) {
       // Don't reveal if user exists for security
@@ -483,7 +507,7 @@ router.post('/forgot-password', async (req, res) => {
     });
   } catch (error) {
     console.error('Forgot password error:', error);
-    res.status(500).json({ success: false, message: 'Server error' });
+    res.status(500).json({ success: false, message: 'Server error', error: error.message });
   }
 });
 

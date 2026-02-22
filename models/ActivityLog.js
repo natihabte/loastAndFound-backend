@@ -13,7 +13,10 @@ const activityLogSchema = new mongoose.Schema({
         'user_verified',
         'user_action',
         'password_reset_requested',
-        'password_reset_completed'
+        'password_reset_completed',
+        'platform_settings_changed',
+        'profile_updated',
+        'password_changed'
       ];
       return !optionalOrgActions.includes(this.action);
     }

@@ -14,6 +14,10 @@ const uploadRoutes = require('./routes/upload');
 const adminRoutes = require('./routes/admin');
 const organizationRoutes = require('./routes/organizations');
 const orderRoutes = require('./routes/orders');
+const organizationAdminRoutes = require('./routes/organizationAdmin');
+const superAdminRoutes = require('./routes/superAdmin');
+const hallAdminRoutes = require('./routes/hallAdmin');
+const orgAdminRoutes = require('./routes/orgAdmin');
 
 const app = express();
 
@@ -39,6 +43,10 @@ app.use('/api/upload', uploadRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/organizations', organizationRoutes);
 app.use('/api/orders', orderRoutes);
+app.use('/api/organization-admin', organizationAdminRoutes);
+app.use('/api/super-admin', superAdminRoutes);
+app.use('/api/hall-admin', hallAdminRoutes);
+app.use('/api/org-admin', orgAdminRoutes);
 
 // API Info route
 app.get('/api', (req, res) => {
@@ -56,6 +64,7 @@ app.get('/api', (req, res) => {
       superAdmin: '/api/super-admin',
       orgAdmin: '/api/org-admin',
       organizations: '/api/organizations',
+      organizationAdmin: '/api/organization-admin',
       orders: '/api/orders',
       health: '/api/health'
     }
@@ -95,24 +104,27 @@ app.listen(PORT, () => {
 const connectDB = async () => {
   const connectionOptions = [
     {
-      name: 'Primary MongoDB',
+      name: 'Primary MongoDB Atlas',
       uri: MONGODB_URI,
       options: {
-        serverSelectionTimeoutMS: 5000,
-        socketTimeoutMS: 45000,
-        connectTimeoutMS: 10000,
+        serverSelectionTimeoutMS: 30000,
+        socketTimeoutMS: 75000,
+        connectTimeoutMS: 30000,
+        family: 4, // Force IPv4
         maxPoolSize: 10,
-        minPoolSize: 5,
-        maxIdleTimeMS: 30000,
+        minPoolSize: 2,
+        retryWrites: true,
+        retryReads: true,
       }
     },
     {
       name: 'Local MongoDB Fallback',
-      uri: 'mongodb://localhost:27017/findit',
+      uri: 'mongodb://127.0.0.1:27017/findit',
       options: {
-        serverSelectionTimeoutMS: 3000,
+        serverSelectionTimeoutMS: 5000,
         socketTimeoutMS: 30000,
-        connectTimeoutMS: 5000,
+        connectTimeoutMS: 10000,
+        family: 4,
       }
     }
   ];
@@ -152,15 +164,22 @@ const connectDB = async () => {
   
   console.log('\n❌ All MongoDB connection attempts failed');
   console.log('🔧 Running in mock data mode');
-  console.log('📋 To fix this:');
-  console.log('   1. Install MongoDB locally: https://www.mongodb.com/try/download/community');
-  console.log('   2. Start MongoDB service: mongod --dbpath C:\\data\\db');
-  console.log('   3. Or fix MongoDB Atlas DNS issues (see MONGODB_CONNECTION_FIX.md)');
-  console.log('\n⚠️  Server will continue with mock database functionality');
-  console.log('🔧 Mock database includes:');
-  console.log('   - Admin user: admin@platform.com / admin123');
-  console.log('   - Test user: test@example.com / password123');
-  console.log('   - Sample activities and items');
+  console.log('\n📋 Quick Fixes:');
+  console.log('   Option 1 - Fix MongoDB Atlas:');
+  console.log('   • Check your internet connection');
+  console.log('   • Verify MongoDB Atlas cluster is running');
+  console.log('   • Check IP whitelist in MongoDB Atlas (add 0.0.0.0/0 for testing)');
+  console.log('   • Verify credentials in .env file');
+  console.log('');
+  console.log('   Option 2 - Use Local MongoDB:');
+  console.log('   • Install: https://www.mongodb.com/try/download/community');
+  console.log('   • Windows: Run "mongod" in Command Prompt as Administrator');
+  console.log('   • Or use MongoDB Compass to start local server');
+  console.log('');
+  console.log('   Option 3 - Continue with Mock Data:');
+  console.log('   • Server will work with in-memory data');
+  console.log('   • Data will reset on server restart');
+  console.log('\n⚠️  Server continuing with mock database functionality');
   global.isDatabaseConnected = false;
   return false;
 };

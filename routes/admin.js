@@ -5,12 +5,289 @@ const Organization = require('../models/Organization');
 const OrganizationPermissions = require('../models/OrganizationPermissions');
 const ActivityLog = require('../models/ActivityLog');
 const Item = require('../models/Item');
+const PlatformSettings = require('../models/PlatformSettings');
 const { protect, authorize } = require('../middleware/auth');
+
+// @route   PUT /api/admin/profile
+// @desc    Update admin profile
+// @access  Private/Admin (admin, superAdmin)
+router.put('/profile', protect, authorize('admin', 'superAdmin', 'hallAdmin', 'orgAdmin'), async (req, res) => {
+  try {
+    const { name, email, phone } = req.body;
+
+    // Find user
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // Check if email is being changed and if it's already taken
+    if (email && email !== user.email) {
+      const emailExists = await User.findOne({ email, _id: { $ne: req.user._id } });
+      if (emailExists) {
+        return res.status(400).json({ success: false, message: 'Email already in use' });
+      }
+    }
+
+    // Update fields
+    if (name) user.name = name;
+    if (email) user.email = email;
+    if (phone !== undefined) user.phone = phone;
+
+    await user.save();
+
+    // Log activity
+    try {
+      await ActivityLog.create({
+        user: req.user._id,
+        action: 'profile_updated',
+        description: 'Admin profile updated',
+        metadata: { updates: { name, email, phone } },
+        severity: 'low',
+        category: 'user_management'
+      });
+    } catch (logError) {
+      console.error('Activity log error:', logError);
+      // Don't fail the request if logging fails
+    }
+
+    res.json({
+      success: true,
+      data: {
+        _id: user._id,
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        role: user.role
+      },
+      message: 'Profile updated successfully'
+    });
+  } catch (error) {
+    console.error('Update admin profile error:', error);
+    console.error('Error stack:', error.stack);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Server error: ' + error.message 
+    });
+  }
+});
+
+// @route   PUT /api/admin/password
+// @desc    Change admin password
+// @access  Private/Admin (admin, superAdmin)
+router.put('/password', protect, authorize('admin', 'superAdmin', 'hallAdmin', 'orgAdmin'), async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Current password and new password are required' 
+      });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'New password must be at least 6 characters' 
+      });
+    }
+
+    // Get user with password field
+    const user = await User.findById(req.user._id).select('+password');
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // Verify current password
+    const isMatch = await user.comparePassword(currentPassword);
+    if (!isMatch) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Current password is incorrect' 
+      });
+    }
+
+    // Update password
+    user.password = newPassword;
+    await user.save();
+
+    // Log activity
+    await ActivityLog.create({
+      user: req.user._id,
+      action: 'password_changed',
+      description: 'Admin password changed',
+      severity: 'medium',
+      category: 'security'
+    });
+
+    res.json({
+      success: true,
+      message: 'Password changed successfully'
+    });
+  } catch (error) {
+    console.error('Change admin password error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// @route   PUT /api/admin/system-settings
+// @desc    Update system settings
+// @access  Private/Admin (admin, hallAdmin, orgAdmin)
+router.put('/system-settings', protect, authorize('admin', 'hallAdmin', 'orgAdmin'), async (req, res) => {
+  try {
+    const { 
+      maintenanceMode, 
+      registrationEnabled, 
+      emailNotifications, 
+      autoApproval,
+      maxFileSize,
+      sessionTimeout
+    } = req.body;
+
+    // Get or create platform settings
+    let settings = await PlatformSettings.getSettings();
+
+    // Update system settings
+    if (!settings.system) {
+      settings.system = {};
+    }
+
+    if (maintenanceMode !== undefined) settings.system.maintenanceMode = maintenanceMode;
+    if (registrationEnabled !== undefined) settings.system.registrationEnabled = registrationEnabled;
+    if (emailNotifications !== undefined) settings.system.emailNotifications = emailNotifications;
+    if (autoApproval !== undefined) settings.system.autoApproval = autoApproval;
+    if (maxFileSize !== undefined) settings.system.maxFileSize = parseInt(maxFileSize);
+    if (sessionTimeout !== undefined) settings.system.sessionTimeout = parseInt(sessionTimeout);
+
+    settings.updatedAt = Date.now();
+    settings.updatedBy = req.user._id;
+
+    await settings.save();
+
+    // Log activity
+    await ActivityLog.create({
+      user: req.user._id,
+      action: 'platform_settings_changed',
+      description: 'System settings updated',
+      metadata: { updates: req.body },
+      severity: 'medium',
+      category: 'system'
+    });
+
+    res.json({
+      success: true,
+      data: settings,
+      message: 'System settings updated successfully'
+    });
+  } catch (error) {
+    console.error('Update system settings error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// @route   GET /api/admin/system-settings
+// @desc    Get system settings
+// @access  Private/Admin (admin, hallAdmin, orgAdmin)
+router.get('/system-settings', protect, authorize('admin', 'hallAdmin', 'orgAdmin'), async (req, res) => {
+  try {
+    const settings = await PlatformSettings.getSettings();
+    res.json({
+      success: true,
+      data: settings.system || {
+        maintenanceMode: false,
+        registrationEnabled: true,
+        emailNotifications: true,
+        autoApproval: false,
+        maxFileSize: 5,
+        sessionTimeout: 24
+      }
+    });
+  } catch (error) {
+    console.error('Get system settings error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// @route   GET /api/admin/platform-settings
+// @desc    Get platform support settings (Admin only)
+// @access  Private/Admin (admin, hallAdmin, orgAdmin)
+router.get('/platform-settings', protect, authorize('admin', 'hallAdmin', 'orgAdmin'), async (req, res) => {
+  try {
+    const settings = await PlatformSettings.getSettings();
+    res.json({
+      success: true,
+      data: settings
+    });
+  } catch (error) {
+    console.error('Get platform settings error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// @route   PUT /api/admin/platform-settings
+// @desc    Update platform support settings (Admin only)
+// @access  Private/Admin (admin, hallAdmin, orgAdmin)
+router.put('/platform-settings', protect, authorize('admin', 'hallAdmin', 'orgAdmin'), async (req, res) => {
+  try {
+    const { support } = req.body;
+
+    // Update settings in database
+    const settings = await PlatformSettings.updateSettings({ support }, req.user._id);
+
+    // Log activity
+    await ActivityLog.create({
+      user: req.user._id,
+      action: 'platform_settings_changed',
+      description: 'Platform support settings updated',
+      metadata: {
+        updates: support
+      },
+      severity: 'medium',
+      category: 'system'
+    });
+
+    res.json({
+      success: true,
+      data: settings,
+      message: 'Platform settings updated successfully'
+    });
+  } catch (error) {
+    console.error('Update platform settings error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// @route   GET /api/admin/platform-settings/public
+// @desc    Get public platform support settings (Public)
+// @access  Public
+router.get('/platform-settings/public', async (req, res) => {
+  try {
+    const settings = await PlatformSettings.getSettings();
+    
+    // Only return public-facing settings
+    const publicSettings = {
+      enabled: settings.support.enabled,
+      phoneNumber: settings.support.phoneNumber,
+      is24x7: settings.support.is24x7,
+      supportEmail: settings.support.supportEmail
+    };
+
+    res.json({
+      success: true,
+      data: publicSettings
+    });
+  } catch (error) {
+    console.error('Get public platform settings error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
 
 // @route   GET /api/admin/activities
 // @desc    Get recent user activities (Admin only)
-// @access  Private/Admin
-router.get('/activities', protect, authorize('admin'), async (req, res) => {
+// @access  Private/Admin (admin, hallAdmin, orgAdmin)
+router.get('/activities', protect, authorize('admin', 'hallAdmin', 'orgAdmin'), async (req, res) => {
   try {
     const { limit = 50, action, userId } = req.query;
     
@@ -191,7 +468,7 @@ router.post('/organizations', protect, authorize('super_admin'), async (req, res
         subscriptionPlan
       },
       severity: 'medium',
-      category: 'organization'
+      category: 'system'
     });
 
     res.status(201).json({
@@ -257,7 +534,7 @@ router.put('/organizations/:id', protect, authorize('super_admin'), async (req, 
         updates: Object.keys(updates)
       },
       severity: 'medium',
-      category: 'organization'
+      category: 'system'
     });
 
     res.json({
@@ -323,7 +600,7 @@ router.put('/organizations/:id/status', protect, authorize('super_admin'), async
         reason
       },
       severity: status === 'suspended' ? 'high' : 'medium',
-      category: 'organization'
+      category: 'system'
     });
 
     res.json({
@@ -367,14 +644,14 @@ router.put('/organizations/:id/permissions', protect, authorize('super_admin'), 
     await ActivityLog.create({
       organization: id,
       user: req.user._id,
-      action: 'organization_permissions_updated',
+      action: 'user_permissions_changed',
       description: `Permissions updated for organization "${organization.name}"`,
       metadata: {
         organizationId: id,
         updatedPermissions: Object.keys(permissionUpdates)
       },
       severity: 'medium',
-      category: 'organization'
+      category: 'user_management'
     });
 
     res.json({
@@ -462,7 +739,7 @@ router.delete('/organizations/:id', protect, authorize('super_admin'), async (re
         targetOrganization: transferData?.targetOrganizationId
       },
       severity: 'high',
-      category: 'organization'
+      category: 'system'
     });
 
     res.json({
